@@ -8,7 +8,9 @@ import kaijin.InventoryStocker.*;
 public class TileEntityInventoryStocker extends TileEntity implements IInventory, ISidedInventory
 {
 	private ItemStack contents[];
-	
+    private boolean previousPoweredState = false;
+	private boolean snapShotState = false;
+    
 	@Override
     public boolean canUpdate()
     {
@@ -59,39 +61,27 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
     	int y = yCoord;
     	int z = zCoord;
     	
-    	String d = Integer.toString(dir);
-    	ModLoader.getMinecraftInstance().thePlayer.addChatMessage(d);
     	switch(dir)
     	{
     	case 0: 
     		y--;
-    		ModLoader.getMinecraftInstance().thePlayer.addChatMessage("case 0 y--");
     		break;
     	case 1: 
     		y++;
-    		ModLoader.getMinecraftInstance().thePlayer.addChatMessage("case 1 y++");
     		break;
     	case 2: 
     		z--;
-    		ModLoader.getMinecraftInstance().thePlayer.addChatMessage("case 2 z--");
     		break;
     	case 3: 
     		z++;
-    		ModLoader.getMinecraftInstance().thePlayer.addChatMessage("case 3 z++");
     		break;
     	case 4: 
     		x--;
-    		ModLoader.getMinecraftInstance().thePlayer.addChatMessage("case 4 x--");
     		break;
     	case 5: 
     		x++;
-    		ModLoader.getMinecraftInstance().thePlayer.addChatMessage("case 5 x++");
     		break;
     	}
-    	String s = "I'm at: " + Float.toString(xCoord) + "," + Float.toString(yCoord) + "," + Float.toString(zCoord);
-    	String s2 = "I'm testing: " + Float.toString(x) + "," + Float.toString(y) + "," + Float.toString(z) + ", " + (worldObj.getBlockMetadata(xCoord, yCoord, zCoord) & 7);
-    	ModLoader.getMinecraftInstance().thePlayer.addChatMessage(s);
-    	ModLoader.getMinecraftInstance().thePlayer.addChatMessage(s2);
     	return worldObj.getBlockTileEntity(x, y, z);
    	}
 	
@@ -232,13 +222,76 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
 	    // TODO Auto-generated method stub
 	}
 	
+	public boolean getSnapshotState()
+	{
+		/*
+		 * returns true if it has a snapshot, false if it doesn't have one
+		 * Does NOT test if the snapshot should still be valid
+		 * (remote inventory changed, removed, etc)
+		 */
+		return snapShotState;
+	}
+	
+	public ItemStack[] takeSnapShot(TileEntity tile)
+	{
+		/*
+		 * This function will take a snapshot the IInventory of the TileEntity passed to it
+		 * and return it as a new ItemStack. This will be a copy of the remote inventory as
+		 * it looks when this function is called.
+		 * 
+		 * It will check that the TileEntity passed to it actually implements IInventory and
+		 * return null if it does not. 
+		 */
+		
+		if (!(tile instanceof IInventory))
+		{
+			return null;
+		}
+		
+		// Get number of slots in the remote inventory
+		int numSlots = ((IInventory)tile).getSizeInventory();
+		ItemStack tempCopy;
+		ItemStack returnCopy[] = new ItemStack[numSlots];
+
+		// Iterate through remote slots and make a copy of it
+		for (int i = 0; i < numSlots; i++)
+		{
+			tempCopy = ((IInventory)tile).getStackInSlot(i);
+			if (tempCopy == null){
+				returnCopy[i] = null;
+			}
+			else
+			{
+				returnCopy[i] = new ItemStack(tempCopy.itemID, tempCopy.stackSize, tempCopy.getItemDamage());
+				if(tempCopy.stackTagCompound != null)
+				{
+					returnCopy[i].stackTagCompound = (NBTTagCompound)tempCopy.stackTagCompound.copy();
+				}
+			}
+		}
+        return returnCopy;
+	}
+	
+	public boolean stockInventory(TileEntity tile, ItemStack itemstack[])
+	{
+		// test to make sure we're actually passed stuff that makes sense
+		if (tile != null && tile instanceof IInventory && itemstack != null)
+		{
+			// do code here
+		}
+		return false;
+	}
+	
 	@Override
 	public void updateEntity ()
 	{
 		super.updateEntity();
 		boolean isPowered = worldObj.isBlockIndirectlyGettingPowered(xCoord,yCoord,zCoord);
-		if (isPowered)
+		if (!isPowered) previousPoweredState = false;
+		if (isPowered && !previousPoweredState)
 		{
+		    previousPoweredState = true;
+            ModLoader.getMinecraftInstance().thePlayer.addChatMessage("Powered");
 			TileEntity tile = getTileAtFrontFace();
 			if(tile != null && tile instanceof IInventory)
 			{
@@ -249,11 +302,8 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
 				 * 
 				 */
 			    ModLoader.getMinecraftInstance().thePlayer.addChatMessage("Chest Found!");
-				
-			}
-			else
-			{
-			    ModLoader.getMinecraftInstance().thePlayer.addChatMessage("Chest NOT Found!");
+			    ItemStack remoteItems[] = takeSnapShot(tile);
+			    stockInventory(tile, remoteItems);
 			}
 		}
 	}
