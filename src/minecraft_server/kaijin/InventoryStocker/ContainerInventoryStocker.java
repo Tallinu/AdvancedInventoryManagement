@@ -1,5 +1,8 @@
 package kaijin.InventoryStocker;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Iterator;
 import net.minecraft.src.*;
 import net.minecraft.src.forge.*;
 import kaijin.InventoryStocker.*;
@@ -7,9 +10,10 @@ import kaijin.InventoryStocker.*;
 public class ContainerInventoryStocker extends Container
 {
     private IInventory playerinventory;
-    private IInventory inventorystockerinventory;
+    private TileEntityInventoryStocker inventorystockerinventory;
+    private List<String> guiPlayerList = new ArrayList<String>();
 
-    public ContainerInventoryStocker(IInventory playerinventory, IInventory inventorystockerinventory)
+    public ContainerInventoryStocker(IInventory playerinventory, TileEntityInventoryStocker inventorystockerinventory)
     {
         this.playerinventory = playerinventory;
         this.inventorystockerinventory = inventorystockerinventory;
@@ -85,12 +89,25 @@ public class ContainerInventoryStocker extends Container
 
         return var2;
     }
+    
+    public void onCraftGuiOpened(ICrafting par1ICrafting)
+    {
+        super.onCraftGuiOpened(par1ICrafting);
+        guiPlayerList.add(((EntityPlayerMP)par1ICrafting).username);
+        inventorystockerinventory.sendSnapshotStateClient(((EntityPlayerMP)par1ICrafting).username);
+        inventorystockerinventory.entityOpenList(guiPlayerList);
+        
+    }
     /**
      * Callback for when the crafting gui is closed.
      */
     public void onCraftGuiClosed(EntityPlayer par1EntityPlayer)
     {
         super.onCraftGuiClosed(par1EntityPlayer);
-        this.inventorystockerinventory.closeChest();
+        if (guiPlayerList.contains(par1EntityPlayer.username))
+        {
+            guiPlayerList.remove(par1EntityPlayer.username);
+            inventorystockerinventory.entityOpenList(guiPlayerList);
+        }
     }
 }

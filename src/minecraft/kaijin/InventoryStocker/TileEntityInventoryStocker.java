@@ -1,5 +1,9 @@
 package kaijin.InventoryStocker;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 import net.minecraft.src.*;
 import net.minecraft.src.forge.*;
 import kaijin.InventoryStocker.*;
@@ -39,13 +43,9 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
 
     public void setSnapshotState(boolean state)
     {
-        if(!Utils.isClient(worldObj))
+        if(Utils.isClient(worldObj))
         {
             this.hasSnapshot = state;
-        }
-        else
-        {
-            //send packet to server asking for it to take a snapshot
         }
     }
     
@@ -53,7 +53,35 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
     {
         return hasSnapshot;
     }
-    
+
+    private void sendSnapshotRequestServer(boolean state)
+    {
+        /*
+         * network code goes here to send snapshot state to server
+         */
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        DataOutputStream data = new DataOutputStream(bytes);
+        try
+        {
+            data.writeInt(0);
+            data.writeInt(this.xCoord);
+            data.writeInt(this.yCoord);
+            data.writeInt(this.zCoord);
+            data.writeBoolean(state);
+        }
+        catch(IOException e)
+        {
+                e.printStackTrace();
+        }
+
+        Packet250CustomPayload packet = new Packet250CustomPayload();
+        packet.channel = "InvStocker"; // CHANNEL MAX 16 CHARS
+        packet.data = bytes.toByteArray();
+        packet.length = packet.data.length;
+
+        ModLoader.sendPacket(packet);
+    }
+
     public void guiTakeSnapshot()
     {
         if(!Utils.isClient(worldObj))
@@ -62,7 +90,7 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
         }
         else
         {
-            //send packet to server asking for it to take a snapshot            
+            sendSnapshotRequestServer(true);
         }
     }
 
@@ -74,7 +102,7 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
         }
         else
         {
-            //send packet to server asking for it to clear the snapshot
+            sendSnapshotRequestServer(false);
         }
     }
     
@@ -774,6 +802,8 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
         else
         {
             String tempName = tile.getClass().getName();
+            String tempInvSize = ("RemoteInvSize: " + ((IInventory)tile).getSizeInventory()+", Expecting: "+this.remoteNumSlots);
+            System.out.println(tempInvSize);
             if (!tempName.equals(targetTileName))
             {
                 System.out.println("Invalid: TileName Mismatched, detected TileName="+tempName+" expected TileName="+targetTileName);
@@ -797,6 +827,11 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
     public void updateEntity()
     {
         super.updateEntity();
+        if(Utils.isClient(worldObj))
+        {
+            //Check the door states client side in SMP here
+            updateDoorStates();
+        }
         if(!Utils.isClient(worldObj))
         {
             // See if this tileEntity instance has ever loaded, if not, do some onLoad stuff to restore prior state
@@ -875,12 +910,13 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
                     // match the one we had prior.
                     if (!hasSnapshot || checkInvalidSnapshot())
                     {
-                        System.out.println("Redstone pulse: No snapshot-taking snapshot");
+                        System.out.println("Redstone pulse: No valid snapshot, doing nothing");
                         clearSnapshot();
+                        /*
                         remoteSnapshot = takeSnapShot(tile);
                         lastTileEntity = tile;
                         hasSnapshot = true;
-
+                        */
                     }
                     else
                     {
@@ -899,6 +935,37 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
                     clearSnapshot();
                     System.out.println("entityUpdate snapshot clear");
                 }
+            }
+        }
+        
+        /*
+         * texture animation somewhat working in SMP with the code below. Front face animation is broken
+         * but the lights do turn on and off
+         */
+        else if(Utils.isClient(worldObj))
+        {
+            boolean isPowered = worldObj.isBlockIndirectlyGettingPowered(xCoord, yCoord, zCoord);
+            if (!isPowered && previousPoweredState)
+            {
+                // Lost power.
+                previousPoweredState = false;
+
+                // Shut off glowing light textures.
+                int meta = worldObj.getBlockMetadata(xCoord, yCoord, zCoord); // Grab current meta data
+                meta &= 7; // Clear bit 4
+                worldObj.setBlockMetadataWithNotify(xCoord, yCoord, zCoord, meta); // And store it
+                worldObj.markBlockAsNeedsUpdate(xCoord, yCoord, zCoord);
+            }
+            if (isPowered && !previousPoweredState)
+            {
+                // We're powered now, set the state flag to true
+                previousPoweredState = true;
+                
+                // Turn on das blinkenlights!
+                int meta = worldObj.getBlockMetadata(xCoord, yCoord, zCoord); // Grab current meta data
+                meta |= 8; // Set bit 4
+                worldObj.setBlockMetadataWithNotify(xCoord, yCoord, zCoord, meta); // And store it
+                worldObj.markBlockAsNeedsUpdate(xCoord, yCoord, zCoord);
             }
         }
     }

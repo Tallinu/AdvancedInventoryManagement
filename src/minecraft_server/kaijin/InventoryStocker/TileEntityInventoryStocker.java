@@ -1,5 +1,13 @@
 package kaijin.InventoryStocker;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Iterator;
+
+
 import net.minecraft.src.*;
 import net.minecraft.src.forge.*;
 import kaijin.InventoryStocker.*;
@@ -21,6 +29,9 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
     public TileEntity tileFrontFace = null;
     private String targetTileName = "none";
     private int remoteNumSlots = 0;
+    private List<String> remoteUsers = new ArrayList<String>();
+    
+    private boolean doorState[];
 
     @Override
     public boolean canUpdate()
@@ -32,17 +43,28 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
     {
         this.contents = new ItemStack [this.getSizeInventory()];
         this.clearSnapshot();
+        doorState = new boolean[6];
     }
 
-    public void setSnapshotState(boolean state)
+    public void entityOpenList(List crafters)
+    {
+        this.remoteUsers = crafters;
+    }
+    
+    public void recvSnapshotRequestClient(boolean state)
     {
         if(!Utils.isClient(worldObj))
         {
-            this.hasSnapshot = state;
-        }
-        else
-        {
-            //send packet to server asking for it to take a snapshot
+            if(state)
+            {
+                System.out.println("GUI: take snapshot request");
+                guiTakeSnapshot = true;
+            }
+            else if(!state)
+            {
+                System.out.println("GUI: clear snapshot request");
+                clearSnapshot();
+            }
         }
     }
     
@@ -51,30 +73,80 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
         return hasSnapshot;
     }
     
-    public void guiTakeSnapshot()
+    public void sendSnapshotStateClient(String playerName)
     {
-        if(!Utils.isClient(worldObj))
+        /*
+         * network code goes here to send snapshot state to the client that just opened
+         * the GUI
+         */
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        DataOutputStream data = new DataOutputStream(bytes);
+        try
         {
-            guiTakeSnapshot = true;
+            data.writeInt(0);
+            data.writeInt(this.xCoord);
+            data.writeInt(this.yCoord);
+            data.writeInt(this.zCoord);
+            data.writeBoolean(this.hasSnapshot);
         }
-        else
+        catch(IOException e)
         {
-            //send packet to server asking for it to take a snapshot            
+                e.printStackTrace();
         }
+
+        Packet250CustomPayload packet = new Packet250CustomPayload();
+        packet.channel = "InvStocker"; // CHANNEL MAX 16 CHARS
+        packet.data = bytes.toByteArray();
+        packet.length = packet.data.length;
+        
+        /*
+         * change the following packet to send to all players with the GUI for this tileentity open
+         * instead of to the entire server
+         */
+        ModLoader.getMinecraftServerInstance().configManager.sendPacketToPlayer(playerName, packet);
     }
 
-    public void guiClearSnapshot()
-    {
-        if(!Utils.isClient(worldObj))
-        {
-            clearSnapshot();
-        }
-        else
-        {
-            //send packet to server asking for it to clear the snapshot
-        }
-    }
     
+    private void sendSnapshotStateClients(boolean state)
+    {
+        /*
+         * network code goes here to send snapshot state to all clients
+         * in the has GUI open list
+         */
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        DataOutputStream data = new DataOutputStream(bytes);
+        try
+        {
+            data.writeInt(0);
+            data.writeInt(this.xCoord);
+            data.writeInt(this.yCoord);
+            data.writeInt(this.zCoord);
+            data.writeBoolean(state);
+        }
+        catch(IOException e)
+        {
+                e.printStackTrace();
+        }
+
+        Packet250CustomPayload packet = new Packet250CustomPayload();
+        packet.channel = "InvStocker"; // CHANNEL MAX 16 CHARS
+        packet.data = bytes.toByteArray();
+        packet.length = packet.data.length;
+        
+        /*
+         * change the following packet to send to all players with the GUI for this tileentity open
+         * instead of to the entire server
+         */
+        if (this.remoteUsers != null)
+        {
+            for (int i = 0; i < this.remoteUsers.size(); ++i)
+            {
+                ModLoader.getMinecraftServerInstance().configManager.sendPacketToPlayer(remoteUsers.get(i), packet);
+            }
+        }
+        // ModLoader.getMinecraftServerInstance().configManager.sendPacketToAllPlayers(packet);
+    }
+
     public void clearSnapshot()
     {
         lastTileEntity = null;
@@ -82,6 +154,76 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
         targetTileName = "none";
         remoteSnapshot = null;
         remoteNumSlots = 0;
+        sendSnapshotStateClients(false);
+    }
+
+    public void onUpdate()
+    {
+        if(!Utils.isClient(worldObj))
+        {
+            if (checkInvalidSnapshot())
+            {
+                clearSnapshot();
+            }
+            // Check adjacent blocks for tubes or pipes and update list accordingly
+            updateDoorStates();
+        }
+    }
+    
+    private void updateDoorStates()
+    {
+        doorState[0] = findTubeOrPipeAt(xCoord,   yCoord-1, zCoord); 
+        doorState[1] = findTubeOrPipeAt(xCoord,   yCoord+1, zCoord); 
+        doorState[2] = findTubeOrPipeAt(xCoord,   yCoord,   zCoord-1); 
+        doorState[3] = findTubeOrPipeAt(xCoord,   yCoord,   zCoord+1); 
+        doorState[4] = findTubeOrPipeAt(xCoord-1, yCoord,   zCoord); 
+        doorState[5] = findTubeOrPipeAt(xCoord+1, yCoord,   zCoord); 
+    }
+
+    private boolean findTubeOrPipeAt(int x, int y, int z)
+    {
+        /*
+         * RedPower connections:
+         *
+         * Meta  Tile Entity
+         * 8     eloraam.machine.TileTube
+         * 9     eloraam.machine.TileRestrictTube
+         * 10    eloraam.machine.TileRedstoneTube
+         *
+         * All are block class: eloraam.base.BlockMicro
+         * 
+         * Buildcraft connections:
+         *
+         * Block class: buildcraft.transport.BlockGenericPipe
+         *
+         * Unable to distinguish water and power pipes from transport pipes.
+         * Would Buildcraft API help?
+         */
+        int ID = worldObj.getBlockId(x, y, z);
+        if (ID > 0)
+        {
+            String type = Block.blocksList[ID].getClass().toString();
+            if (type.endsWith("GenericPipe"))
+            {
+                // Buildcraft Pipe
+                // Until more specific matching of transport pipes can be performed, simply assume a connection.
+                return true;
+            }
+            else if (type.endsWith("eloraam.base.BlockMicro"))
+            {
+                // RedPower Tube test
+                int m = worldObj.getBlockMetadata(x, y, z);
+
+                return (m >= 8) && (m <= 10);
+            }
+        }
+        return false;
+    }
+
+    public boolean doorOpenOnSide(int i)
+    {
+        // Return whether the neighboring block is a tube or pipe
+        return doorState[i];
     }
 
     public int getStartInventorySide(int i)
@@ -687,15 +829,6 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
         return false;
     }
 
-    public void onUpdate()
-    {
-        if(!Utils.isClient(worldObj))
-        {
-            if (checkInvalidSnapshot())
-                clearSnapshot();
-        }
-    }
-    
     @Override
     public void updateEntity()
     {
@@ -715,16 +848,23 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
              */
             if (guiTakeSnapshot)
             {
-                System.out.println("GUI take snapshot request");
                 TileEntity tile = getTileAtFrontFace();
                 if (tile != null && tile instanceof IInventory)
                 {
-                    System.out.println("GUI: No snapshot-taking snapshot");
                     clearSnapshot();
                     remoteSnapshot = takeSnapShot(tile);
                     lastTileEntity = tile;
                     hasSnapshot = true;
                     guiTakeSnapshot = false;
+                    /*
+                     * server has no GUI, but this code works for our purposes.
+                     * We need to send the successful snapshot state flag here
+                     * to all clients that have the GUI open using the function
+                     * below. Setting parameter to true will set a valid snapshot,
+                     * setting it to false will send an invalid snapshot
+                     */
+                    sendSnapshotStateClients(true);
+                    
                 }
                 else
                 {
@@ -766,12 +906,13 @@ public class TileEntityInventoryStocker extends TileEntity implements IInventory
                     // match the one we had prior.
                     if (!hasSnapshot || checkInvalidSnapshot())
                     {
-                        System.out.println("Redstone pulse: No snapshot-taking snapshot");
+                        System.out.println("Redstone pulse: No valid snapshot, doing nothing");
                         clearSnapshot();
+                        /*
                         remoteSnapshot = takeSnapShot(tile);
                         lastTileEntity = tile;
                         hasSnapshot = true;
-
+                        */
                     }
                     else
                     {
