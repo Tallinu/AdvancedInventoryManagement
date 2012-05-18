@@ -3,8 +3,10 @@ package net.minecraft.src;
 import net.minecraft.src.forge.*;
 import java.io.File;
 import java.util.*;
+
+import com.kaijin.InventoryStocker.*;
+
 import net.minecraft.client.Minecraft;
-import kaijin.InventoryStocker.*;
 
 public class mod_InventoryStocker extends NetworkMod
 {
@@ -23,13 +25,14 @@ public class mod_InventoryStocker extends NetworkMod
     {
         MinecraftForge.versionDetect("Inventory Stocker", 3, 1, 2);
         MinecraftForge.registerConnectionHandler(new ConnectionHandler());
-        MinecraftForgeClient.preloadTexture("/kaijin/InventoryStocker/terrain.png");
+        MinecraftForgeClient.preloadTexture("/com/kaijin/InventoryStocker/textures/terrain.png");
         ModLoader.registerBlock(InventoryStocker);
         ModLoader.registerTileEntity(TileEntityInventoryStocker.class, "InventoryStocker");
         ModLoader.addName(InventoryStocker, "Inventory Stocker");
         ModLoader.addRecipe(new ItemStack(InventoryStocker, 16), new Object[] {"XX", "XX", 'X', Block.dirt}); // Testing Recipe
         ModLoader.addRecipe(new ItemStack(InventoryStocker, 1), new Object[] {"IWI", "PRP", "IWI", 'I', Item.ingotIron, 'W', Block.planks, 'P', Block.pistonBase, 'R', Item.redstone});
         MinecraftForge.setGuiHandler(this.instance, new GuiHandlerInventoryStocker());
+        Utils.init();
     }
 
     public static int configurationProperties()
